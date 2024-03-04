@@ -7,19 +7,18 @@ interface FeatureProps {
     depth?: number;
     selection: ISelectionData;
     onChange?: () => void;
-    parentChecked?: boolean;
+    parentState?: number;
 }
-
 
 export default function Feature({
     feature,
     selection,
     onChange = () => {},
     depth = 0,
-    parentChecked = true,
+    parentState = 2,
 }: FeatureProps) {
     const [checked, setChecked] = useState(true);
-    const [childChecked, setChildChecked] = useState(true);
+    const [childState, setChildState] = useState(2);
     const [partial, setPartial] = useState(false);
 
     const handleChildChange = () => {
@@ -31,34 +30,40 @@ export default function Feature({
         if (selectedCount === children.length) {
             setChecked(true);
             setPartial(false);
-            setChildChecked(true);
+            setChildState(2);
         } else if (selectedCount === 0) {
             setChecked(false);
             setPartial(false);
-            setChildChecked(false);
+            setChildState(0);
         } else {
             setChecked(true);
             setPartial(true);
+            setChildState(1);
         }
 
         onChange();
     };
 
     const handleCheckbox = (value: boolean) => {
+        selection.checked = value;
         setChecked(value);
         setPartial(false);
-        setChildChecked(value);
-        selection.checked = value;
+        setChildState(value ? 2 : 0);
+
         // propagate changes in lower level to higher levels
         onChange();
     };
 
     // update child state when parent state changes
     useEffect(() => {
-        setChecked(parentChecked);
+        let value: boolean;
+        if (parentState === 0) value = false;
+        else if (parentState === 2) value = true;
+        else value = selection.checked;
+        setChecked(value);
         setPartial(false);
-        selection.checked = parentChecked;
-    }, [parentChecked, selection]);
+        selection.checked = value;
+    }, [parentState, selection]);
 
     return (
         <div className="flex flex-col gap-5">
@@ -86,7 +91,7 @@ export default function Feature({
                     depth={depth + 1}
                     selection={selection.child[subfeature.id]}
                     onChange={handleChildChange}
-                    parentChecked={childChecked}
+                    parentState={childState}
                 />
             ))}
         </div>

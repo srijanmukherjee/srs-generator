@@ -1,4 +1,4 @@
-import { useLoaderData } from "react-router-dom";
+import { Link, useLoaderData } from "react-router-dom";
 import { ISelection, TDomain, TFeature } from "../types";
 import { useEffect, useRef, useState } from "react";
 import Feature from "../components/feature";
@@ -128,6 +128,9 @@ export default function DomainPage() {
 
     return (
         <div className="py-5 px-3 max-w-full md:max-w-[80rem] mx-auto">
+            <Link to="/" className="mb-4 block hover:text-blue-600">
+                ← Go back
+            </Link>
             <div className="px-2 py-1 rounded text-xs mb-2 bg-neutral-900 text-white max-w-fit">
                 domain
             </div>
