@@ -4,13 +4,15 @@ import { connectDB } from "./utils/db";
 import { domainRouter } from "./routes/domain";
 import { staffRouter } from "./routes/staff";
 import { handleError } from "./utils/error-handler";
-import { isAsyncFunction } from "util/types";
+import cors from 'cors';
+import { ensureExecutables } from "./utils/ensure-executable";
 
 dotenv.config();
 
 const app = express();
 const port = process.env.PORT || 8000;
 
+app.use(cors());
 app.use(express.json());
 
 app.get("/api/health", (req, res) => {
@@ -23,7 +25,15 @@ app.use("/api/domains", domainRouter);
 app.use("/api/staffs", staffRouter);
 app.use(handleError);
 
-connectDB(process.env.MONGO_URI!, process.env.MONGO_DATABASE!);
-app.listen(port, () => {
-    console.log(`Listening on http://localhost:${port}`);
-});
+function main() {
+    connectDB(process.env.MONGO_URI!, process.env.MONGO_DATABASE!);
+    app.listen(port, () => {
+        console.log(`Listening on http://localhost:${port}`);
+    });
+}
+
+// ensure pdflatex is installed in the system
+ensureExecutables(["pdflatex"]).then(main).catch((err) => {
+    console.error(err.toString());
+    process.exit(1);
+})

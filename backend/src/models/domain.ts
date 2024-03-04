@@ -4,6 +4,7 @@ export type TFeature = {
     _id: mongoose.Types.ObjectId,
     name: string,
     description: string,
+    document_content?: string;
     time_estimate: number,
     staffs: string[],
     features?: TFeature[]
@@ -36,6 +37,7 @@ const featureSchema = new mongoose.Schema<IFeature>({
         required: true,
     },
     staffs: [String],
+    document_content: String
 });
 
 featureSchema.add({

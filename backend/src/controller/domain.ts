@@ -5,12 +5,19 @@ import { UnprocessableEntityException } from "../exception/unprocessable-entity-
 import { ResourceNotFoundException } from "../exception/resource-not-found-exception";
 import { BadRequestException } from "../exception/bad-request-exception";
 import { Staff, TStaff } from "../models/staff";
+import { Latex } from "../utils/latex";
+import { v4 as uuidv4 } from "uuid";
+import { exec } from "node:child_process";
+import { mkdir } from "fs/promises";
+import { rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
 
 const baseFeatureSchema = z.object({
     name: z.string({ required_error: "feature name is required" }),
     description: z.string({ required_error: "feature description is required" }),
     time_estimate: z.number({ required_error: "time_estimate is required" }).min(0, "time estimate must be >= 0"),
     staffs: z.string({ required_error: "staffs is required" }).array(),
+    document_content: z.string().optional()
 })
 
 type Feature = z.infer<typeof baseFeatureSchema> & {
@@ -83,6 +90,7 @@ export async function updateDomain(req: Request, res: Response) {
     const domainDto = await domainSchema.parseAsync(req.body).catch((error: z.ZodError) => {
         throw new UnprocessableEntityException(error.issues.map((err) => err.message));
     });
+    console.log(domainDto);
     await Domain.updateOne({ slug }, { $set: domainDto }).orFail(() => new ResourceNotFoundException("Domain not found"));
     return res.json({
         status: "ok"
@@ -98,12 +106,13 @@ interface FeatureMap {
         staffs: string[],
         features: FeatureMap;
         id: string;
+        document_content?: string;
     }
 }
 
 function getFeatureMap(features: TFeature[]) {
     return features.reduce((obj, feature) => {
-        obj[feature._id.toString()] = { staffs: feature.staffs, time_estimate: feature.time_estimate, features: getFeatureMap(feature.features || []), id: feature._id.toString() };
+        obj[feature._id.toString()] = { staffs: feature.staffs, time_estimate: feature.time_estimate, features: getFeatureMap(feature.features || []), id: feature._id.toString(), document_content: feature.document_content, name: feature.name, description: feature.description };
         return obj;
     }, {} as any)
 }
@@ -186,4 +195,152 @@ export async function getEstimate(req: Request, res: Response) {
     const featureMap = getFeatureMap(domain.features);
     const estimate = computeCost(selections, featureMap, staffs);
     return res.json({ cost: estimate.cost, time: estimate.time, staffs: Array.from(estimate.staffRequired.values()) })
+}
+
+function writeFeatures(latex: Latex, selections: any[], featureMap: FeatureMap, staffs: { [key: string]: TStaff }) {
+    // get list of staff abbreviations
+    const getStaffs = (feature: { features: FeatureMap, staffs: string[] }) => {
+        const res = new Set<string>();
+
+        feature.staffs.forEach((str) => {
+            res.add(str);
+        });
+
+        Object.values(feature.features).forEach((subfeature) => {
+            const substaffs = getStaffs(subfeature);
+            substaffs.forEach((str) => res.add(str));
+        })
+
+        return Array.from(res.values());
+    }
+
+    const helper = (selections: any[], featureMap: FeatureMap, staffs: { [key: string]: TStaff }) => {
+        selections.forEach((selection) => {
+            if (typeof selection === "string") {
+                const feature = featureMap[selection];
+                if (feature === undefined) {
+                    throw new UnprocessableEntityException(`feature ${selection} doesn't exist`);
+                }
+                latex.addSubsection(feature.name, feature.document_content ?? feature.description);
+                helper(Object.keys(feature.features ?? {}), featureMap[selection].features, staffs);
+            } else if (typeof selection === "object") {
+                if (!selection.id || !(typeof selection.id === "string")) {
+                    throw new UnprocessableEntityException(`expected feature id to be string`);
+                }
+
+                const feature = featureMap[selection.id];
+                if (!feature) {
+                    throw new UnprocessableEntityException(`feature ${selection.id} doesn't exist`);
+                }
+
+                if (selection.features !== undefined && !Array.isArray(selection.features)) {
+                    throw new UnprocessableEntityException("expected features to be an array")
+                }
+
+                latex.addSection(feature.name, feature.document_content ?? feature.description);
+
+                if (selection.features && Array.isArray(selection.features) && selection.features.length > 0) {
+                    helper(selection.features, feature.features, staffs);
+                } else {
+                    helper(Object.keys(feature.features ?? {}), feature.features, staffs);
+                }
+            } else {
+                throw new UnprocessableEntityException("Expected feature id or an object representing nested features");
+            }
+        });
+    }
+
+    selections.forEach((selection) => {
+        if (typeof selection === "string") {
+            const feature = featureMap[selection];
+            if (feature === undefined) {
+                throw new UnprocessableEntityException(`feature ${selection} doesn't exist`);
+            }
+            const staffRequired = getStaffs(feature).map((abbr) => staffs[abbr].name);
+            latex.addSection(feature.name, `Staff Required: ${staffRequired.join(", ")}\\\\${feature.description ?? feature.document_content}`);
+            helper(Object.keys(feature.features ?? {}), featureMap[selection].features, staffs);
+        } else if (typeof selection === "object") {
+            if (!selection.id || !(typeof selection.id === "string")) {
+                throw new UnprocessableEntityException(`expected feature id to be string`);
+            }
+
+            const feature = featureMap[selection.id];
+            if (!feature) {
+                throw new UnprocessableEntityException(`feature ${selection.id} doesn't exist`);
+            }
+
+            if (selection.features !== undefined && !Array.isArray(selection.features)) {
+                throw new UnprocessableEntityException("expected features to be an array")
+            }
+
+            const staffRequired = getStaffs(feature).map((abbr) => staffs[abbr].name);
+            latex.addSection(feature.name, `Staff Required: ${staffRequired.join(", ")}\\\\${feature.description ?? feature.document_content}`);
+
+            if (selection.features && Array.isArray(selection.features) && selection.features.length > 0) {
+                helper(selection.features, feature.features, staffs);
+            } else {
+                helper(Object.keys(feature.features ?? {}), feature.features, staffs);
+            }
+        } else {
+            throw new UnprocessableEntityException("Expected feature id or an object representing nested features");
+        }
+    });
+}
+
+export async function downloadSRSDocument(req: Request, res: Response) {
+    const { slug } = req.params;
+    const selections = req.body;
+    if (!selections || !Array.isArray(selections)) {
+        throw new UnprocessableEntityException("expected an array of feature selections")
+    }
+
+    const domain = await Domain.findOne({ slug }).orFail(() => new ResourceNotFoundException("Domain not found"));
+    const staffs = (await Staff.find())
+        .reduce((obj, staff) => ({ ...obj, [staff.abbreviation]: staff }),
+            {} as { [key: string]: TStaff });
+
+    const featureMap = getFeatureMap(domain.features);
+    const latex = new Latex("template/srs.tex", `${domain.name} Software Requirement and Specification`, "Company Name");
+    latex.writeLine(domain.description);
+    writeFeatures(latex, selections, featureMap, staffs);
+    const estimate = computeCost(selections, featureMap, staffs);
+    latex.addSection("Estimations", `Cost: \\$${estimate.cost}\\\\Duration: ${estimate.time} hours\\\\Staffs: ${Array.from(estimate.staffRequired).map((abbr) => staffs[abbr].name).join(", ")}`)
+    const latexSource = await latex.generate();
+
+    const id = uuidv4();
+    const OUTPUT_DIR = tmpdir();
+
+    try {
+        await mkdir(`${OUTPUT_DIR}/${id}`, { recursive: true });
+    } catch (error) {
+        await rm(`${OUTPUT_DIR}/${id}`, { force: true, recursive: true });
+        throw error;
+    }
+    try {
+        const pdflatexProcess = exec(`pdflatex -halt-on-error -output-directory=${OUTPUT_DIR}/${id}`, async (error, stdout, stderr) => {
+            if (error) {
+                await rm(`${OUTPUT_DIR}/${id}`, { force: true, recursive: true });
+                throw error;
+            }
+
+            res.sendFile(`${OUTPUT_DIR}/${id}/texput.pdf`, async (err) => {
+                await rm(`${OUTPUT_DIR}/${id}`, { force: true, recursive: true });
+                if (err && !res.headersSent) {
+                    throw err;
+                }
+            })
+        });
+
+        if (pdflatexProcess.stdin) {
+            pdflatexProcess.stdin.write(latexSource);
+            pdflatexProcess.stdin.end();
+        } else {
+            await rm(`${OUTPUT_DIR}/${id}`, { force: true, recursive: true });
+            pdflatexProcess.kill();
+            throw new Error("subprocess stdin not available");
+        }
+    } catch (error) {
+        await rm(`${OUTPUT_DIR}/${id}`, { force: true, recursive: true });
+        throw error;
+    }
 }
