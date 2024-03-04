@@ -174,17 +174,23 @@ export default function DomainPage() {
                 <div className="px-4 py-5 bg-neutral-100 rounded">
                     <h2 className="text-xl">Estimation</h2>
                     <table className="table text-left">
-                        <tr>
-                            <th>Cost</th>
-                            <td className="pl-5 flex items-center gap-2">
-                                <span className="font-semibold text-xl">$</span>
-                                {estimation.cost}
-                            </td>
-                        </tr>
-                        <tr>
-                            <th>Approx. duration</th>
-                            <td className="pl-5">{estimation.time} hours</td>
-                        </tr>
+                        <tbody>
+                            <tr>
+                                <th>Cost</th>
+                                <td className="pl-5 flex items-center gap-2">
+                                    <span className="font-semibold text-xl">
+                                        $
+                                    </span>
+                                    {estimation.cost}
+                                </td>
+                            </tr>
+                            <tr>
+                                <th>Approx. duration</th>
+                                <td className="pl-5">
+                                    {estimation.time} hours
+                                </td>
+                            </tr>
+                        </tbody>
                     </table>
                     <div className="mt-3 text-neutral-500">
                         <span className="font-semibold">Note:</span> This is an
