@@ -67,11 +67,15 @@ export default function DomainPage() {
                     "Content-Type": "application/json",
                 },
             }
-        );
-        if (!response.ok) {
+        ).catch(() => {
+            return null;
+        });
+
+        if (!response || !response.ok) {
             setEstimationError(
                 "Failed to get your estimation, please try again later."
             );
+            setEstimation(undefined);
             return;
         }
 
