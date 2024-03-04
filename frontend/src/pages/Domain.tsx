@@ -46,9 +46,7 @@ export default function DomainPage() {
     const [estimation, setEstimation] = useState<
         { cost: number; time: number } | undefined
     >();
-    const [estimationError, setEstimationError] = useState<
-        string | undefined
-    >();
+    const [error, setError] = useState<string | undefined>();
 
     const handleChange = () => {
         const children = Object.values(selectionRef.current);
@@ -72,19 +70,53 @@ export default function DomainPage() {
         });
 
         if (!response || !response.ok) {
-            setEstimationError(
-                "Failed to get your estimation, please try again later."
-            );
+            setError("Failed to get your estimation, please try again later.");
             setEstimation(undefined);
             return;
         }
 
-        setEstimationError(undefined);
+        setError(undefined);
         setEstimation(await response.json());
     };
 
-    const downloadPDF = () => {
-        alert("This feature is not implemented yet");
+    const downloadPDF = async () => {
+        const selections = serializeSelection(selectionRef.current);
+        const response = await fetch(
+            `${import.meta.env.VITE_API_URL}/domains/${domain.slug}/download`,
+            {
+                method: "POST",
+                body: JSON.stringify(selections),
+                headers: {
+                    "Content-Type": "application/json",
+                },
+            }
+        ).catch(() => {
+            return null;
+        });
+
+        if (!response || !response.ok) {
+            setError(
+                "Something went wrong while preparing your document, please try again later."
+            );
+            return;
+        }
+
+        let data: Blob;
+        try {
+            data = await response.blob();
+        } catch (err) {
+            setError(
+                "Something went wrong while preparing your document, please try again later."
+            );
+            return;
+        }
+
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(data);
+        a.download = `${domain.slug}.pdf`;
+        a.click();
+        URL.revokeObjectURL(a.href);
+        a.remove();
     };
 
     useEffect(() => {
@@ -129,9 +161,9 @@ export default function DomainPage() {
                 </button>
             </div>
 
-            {estimationError && (
+            {error && (
                 <div className="bg-red-100 rounded px-4 py-5 text-red-600 font-semibold">
-                    {estimationError}
+                    {error}
                 </div>
             )}
 
