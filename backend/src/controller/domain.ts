@@ -237,7 +237,7 @@ function writeFeatures(latex: Latex, selections: any[], featureMap: FeatureMap, 
                     throw new UnprocessableEntityException("expected features to be an array")
                 }
 
-                latex.addSection(feature.name, feature.document_content ?? feature.description);
+                latex.addSubsection(feature.name, feature.document_content ?? feature.description);
 
                 if (selection.features && Array.isArray(selection.features) && selection.features.length > 0) {
                     helper(selection.features, feature.features, staffs);
